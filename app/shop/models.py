@@ -1,3 +1,4 @@
+import logging
 from django.db import IntegrityError, models, transaction
 from django.core.validators import MinValueValidator
 from django.conf import settings
@@ -7,8 +8,8 @@ from shop.exceptions import OutOfStocksException
 
 
 class DateTimeStampedModel(models.Model):
-    created_at = models.DateTimeField(auto_now=True)
-    updated_at = models.DateTimeField(auto_now_add=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         abstract = True
@@ -50,23 +51,29 @@ class Product(models.Model):
         return f"Product: {self.name} (NGN {self.price})"
 
     def save(self, *args, **kwargs):
+        # a signal could be better for enterprise level implementations
         self.check_product_inventory()
         super().save(*args, **kwargs)
 
     def check_product_inventory(self):
-        self.is_available = self.stock > 0
+        self.is_available = self.stock >= 0
 
 
 class Order(DateTimeStampedModel):
     user = models.ForeignKey(settings.AUTH_USER_MODEL,
                              on_delete=models.CASCADE)
     products = models.ManyToManyField(Product, through="OrderItem")
+    is_checked_out = models.BooleanField(default=False, editable=False)
 
     class Meta:
         ordering = ("created_at", "updated_at")
 
     def __str__(self):
         return f"Order by {self.user.name}"
+
+    def check_out_order(self):
+        self.is_checked_out = True
+        self.save(update_fields=["is_checked_out"])
 
 
 class OrderItem(models.Model):
@@ -85,6 +92,8 @@ class OrderItem(models.Model):
         try:
             with transaction.atomic():  # transaction to avoid race conditions
                 if not self.product.is_available:
+                    logging.exception(
+                        f"The item {self.product.name} is out of stock")
                     raise OutOfStocksException(
                         f"The item {self.product.name} is out of stock")
 
@@ -92,10 +101,14 @@ class OrderItem(models.Model):
                 self.product.stock -= self.quantity
                 self.product.save()  # reduce the product stock
         except IntegrityError:
+            logging.exception("Product is not available")
             raise OutOfStocksException
+        except Exception as e:
+            logging.exception("An exception occurred while saving ", e)
+            raise e
 
     def delete(self, *args, **kwargs):
         with transaction.atomic():  # transaction to avoid race conditions
             super().delete(*args, **kwargs)
             self.product.stock += self.quantity
-            self.product.save()  # add the item back into the stock
+            self.product.save()  # add the item back into the stock - signals would be better

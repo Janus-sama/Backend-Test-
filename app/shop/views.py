@@ -1,5 +1,5 @@
 
-from rest_framework import viewsets, pagination, filters, routers, generics
+from rest_framework import viewsets, pagination, filters, routers, generics, decorators, response, status
 from rest_framework.permissions import IsAuthenticated, AllowAny, IsAdminUser
 from rest_framework.response import Response
 from rest_framework.reverse import reverse
@@ -70,6 +70,15 @@ class OrderItemViewSet(viewsets.ModelViewSet):
 
 class OrderViewSet(viewsets.ModelViewSet):
     serializer_class = OrderSerializer
+
+    @decorators.action(detail=True, methods=["POST"], url_path='check-outorder-history')
+    def check_out(self, request, *args, **kwargs):
+        order = self.get_object()
+
+        if not order.is_checked_out:
+            order.check_out_order()
+            return response.Response(status=status.HTTP_200_OK)
+        return response.Response({"detail": "Order is already checked out."}, status=status.HTTP_400_BAD_REQUEST)
 
     def get_permissions(self):
         if self.action in ["create"]:
