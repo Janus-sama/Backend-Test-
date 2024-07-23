@@ -1,7 +1,5 @@
-from rest_framework import status
-from rest_framework.test import APIClient, APIRequestFactory, RequestsClient
+from rest_framework.test import APIClient, APIRequestFactory
 from django.test import TestCase
-from rest_framework import serializers
 from core.models import User
 from shop.models import Category, Order, OrderItem, Product
 from shop.serializers import CategorySerializer, OrderSerializer, OrderItemSerializer, ProductSerializer
