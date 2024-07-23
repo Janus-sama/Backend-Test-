@@ -1,5 +1,5 @@
 import logging
-from django.db import IntegrityError, models, transaction
+from django.db import IntegrityError, models
 from django.core.validators import MinValueValidator
 from django.conf import settings
 
@@ -56,7 +56,7 @@ class Product(models.Model):
         super().save(*args, **kwargs)
 
     def check_product_inventory(self):
-        self.is_available = self.stock >= 0
+        self.is_available = self.stock > 0
 
 
 class Order(DateTimeStampedModel):
@@ -89,17 +89,9 @@ class OrderItem(models.Model):
         return f"Ordered {self.quantity} of {self.product}"
 
     def save(self, *args, **kwargs):
+        self._validate_product_inventory()
         try:
-            with transaction.atomic():  # transaction to avoid race conditions
-                if not self.product.is_available:
-                    logging.exception(
-                        f"The item {self.product.name} is out of stock")
-                    raise OutOfStocksException(
-                        f"The item {self.product.name} is out of stock")
-
-                super().save(*args, **kwargs)
-                self.product.stock -= self.quantity
-                self.product.save()  # reduce the product stock
+            super().save(*args, **kwargs)
         except IntegrityError:
             logging.exception("Product is not available")
             raise OutOfStocksException
@@ -107,8 +99,10 @@ class OrderItem(models.Model):
             logging.exception("An exception occurred while saving ", e)
             raise e
 
-    def delete(self, *args, **kwargs):
-        with transaction.atomic():  # transaction to avoid race conditions
-            super().delete(*args, **kwargs)
-            self.product.stock += self.quantity
-            self.product.save()  # add the item back into the stock - signals would be better
+    def _validate_product_inventory(self):
+
+        if not self.product.is_available:
+            logging.exception(
+                f"The item {self.product.name} is out of stock")
+            raise OutOfStocksException(
+                f"The item {self.product.name} is out of stock")
